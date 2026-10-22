@@ -41,10 +41,10 @@ if [ "$target" != aws ]; then
 fi
 
 # The playbook: a sibling checkout if you have one, otherwise the public repo.
-ansible_dir=${ANSIBLE_DIR:-../ajf-fedora-workstation-ansible}
+ansible_dir=${ANSIBLE_DIR:-../fedora-dev-machine}
 if [ ! -f "$ansible_dir/playbook.yml" ]; then
   ansible_dir=.ansible-src
-  repo=${ANSIBLE_REPO_URL:-https://github.com/aaronfeingold/ajf-fedora-workstation-ansible.git}
+  repo=${ANSIBLE_REPO_URL:-https://github.com/aaronfeingold/fedora-dev-machine.git}
   if [ -d "$ansible_dir/.git" ]; then git -C "$ansible_dir" pull -q; else git clone -q --depth 1 "$repo" "$ansible_dir"; fi
 fi
 

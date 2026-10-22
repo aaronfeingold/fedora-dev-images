@@ -22,7 +22,7 @@ variable "gpu" {
 
 variable "ansible_dir" {
   type        = string
-  default     = "../ajf-fedora-workstation-ansible"
+  default     = "../fedora-dev-machine"
   description = "Local checkout of the Ansible repo; Packer runs its playbook from this machine over SSH."
 }
 

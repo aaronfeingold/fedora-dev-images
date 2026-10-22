@@ -1,7 +1,7 @@
 # Fedora dev images (AWS + GCP)
 
 Packer template that builds a ready-to-use **Fedora 44** machine image on **AWS (AMI)** and/or
-**GCP (GCE image)** by running the [Fedora dev machine playbook](https://github.com/aaronfeingold/ajf-fedora-workstation-ansible)
+**GCP (GCE image)** by running the [Fedora dev machine playbook](https://github.com/aaronfeingold/fedora-dev-machine)
 against a temporary builder instance. Launch an instance from the image and start building, with no
 20-minute setup each time.
 
@@ -25,7 +25,7 @@ gcloud auth application-default login                            # (for GCP)
 export GCP_PROJECT_ID=$(gcloud config get-value project)         # (for GCP)
 ```
 
-Put the playbook next to this repo (`../ajf-fedora-workstation-ansible`) to build from your local
+Put the playbook next to this repo (`../fedora-dev-machine`) to build from your local
 changes; otherwise `./build` fetches the public repo. Override with `ANSIBLE_DIR` / `ANSIBLE_REPO_URL`.
 
 ## Build

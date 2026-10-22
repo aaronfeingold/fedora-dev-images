@@ -1,34 +1,68 @@
+# Nothing personal or secret belongs here. Cloud credentials come from your normal
+# AWS profile / gcloud application-default login, never from Packer variables.
+# Per-user values go in a gitignored *.auto.pkrvars.hcl (see example.auto.pkrvars.hcl.example).
+
+variable "fedora_version" {
+  type        = number
+  default     = 44
+  description = "Fedora release to build from (official Fedora Cloud images)."
+}
+
+variable "image_name" {
+  type        = string
+  default     = "fedora-dev"
+  description = "Name prefix for the output AMI / GCE image. A -gpu suffix and timestamp are added."
+}
+
+variable "gpu" {
+  type        = bool
+  default     = false
+  description = "Bake NVIDIA driver + CUDA + ML venvs into the image (for GPU instances)."
+}
+
+variable "ansible_dir" {
+  type        = string
+  default     = "../ajf-fedora-workstation-ansible"
+  description = "Local checkout of the Ansible repo; Packer runs its playbook from this machine over SSH."
+}
+
+variable "ansible_extra_vars" {
+  type        = map(string)
+  default     = {}
+  description = "Extra -e vars for the playbook, e.g. { install_databases = \"true\" }."
+}
+
+variable "disk_size_gb" {
+  type        = number
+  default     = 80
+  description = "Root disk size. GPU images with CUDA + PyTorch + TensorFlow need ~60 GB."
+}
+
+# ---- AWS ----
 variable "aws_region" {
-  type        = string
-  default     = "us-east-1"
-  description = "The AWS region where the AMI will be built"
+  type    = string
+  default = "us-east-1"
 }
 
-variable "ami_name" {
+variable "aws_instance_type" {
   type        = string
-  default     = "ajf-base-ami"
-  description = "The name prefix for the generated AMI"
+  default     = "t3.large"
+  description = "Builder instance. A GPU image can be built on a non-GPU instance (driver is installed, loads on first boot of a GPU instance)."
 }
 
-variable "instance_type" {
+# ---- GCP ----
+variable "gcp_project_id" {
   type        = string
-  default     = "t3.medium"
-  description = "The EC2 instance type used to build the AMI"
+  default     = env("GCP_PROJECT_ID")
+  description = "GCP project to build in. Defaults to $GCP_PROJECT_ID."
 }
 
-variable "ansible_repo" {
-  type        = string
-  default     = "aaronfeingold/ajf-fedora-workstation-ansible"
-  description = "The Git repository URL for the Ansible playbooks"
+variable "gcp_zone" {
+  type    = string
+  default = "us-central1-a"
 }
 
-variable "source_ami" {
-  type        = string
-  default     = "ami-09722669c73b517f6"
-  description = "The source AMI ID (Fedora-Cloud-Base-AmazonEC2-41-1.4-x86_64)"
-}
-variable "github_token" {
-  type        = string
-  default     = "github_token"
-  description = "A fine-grained github token for cloning the Ansible repository"
+variable "gcp_machine_type" {
+  type    = string
+  default = "e2-standard-4"
 }

@@ -9,3 +9,7 @@ secrets/
 .terraform/
 .packer_cache/
 output-*/
+.packer.d/
+manifest.json
+*.auto.pkrvars.hcl
+.ansible-src/

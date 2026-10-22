@@ -1,93 +1,52 @@
 #!/bin/bash
+# Build a Fedora dev image on AWS, GCP, or both.
+#   ./build aws               # base image (AMI)
+#   ./build gcp --gpu         # GPU image (NVIDIA driver + CUDA + ML venvs) on GCP
+#   ./build all               # both clouds
+# Extra args after -- go to `packer build`, e.g.  ./build aws -- -var aws_region=us-west-2
+#
+# Credentials come from your normal logins, never from files in this repo:
+#   AWS: `aws configure` / `aws sso login` / AWS_PROFILE        GCP: `gcloud auth application-default login`
+set -euo pipefail
+cd "$(dirname "$0")"
 
-set -e
-
-# Load environment variables from .env file if it exists
-if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
-fi
-
-# Default values
-INSTANCE_TYPE="t3.medium"
-REGION="us-east-1"
-ANSIBLE_REPO="aaronfeingold/ajf-fedora-workstation-ansible"
-SOURCE_AMI="ami-09722669c73b517f6"
-AMI_NAME="ajf-base-ami"
-GITHUB_TOKEN=${GITHUB_TOKEN:-""}  # Use env var if available
-
-# Parse command-line options
-while [[ $# -gt 0 ]]; do
+target=${1:-}; shift || true
+gpu=false
+while [ $# -gt 0 ]; do
   case $1 in
-    --instance-type)
-      INSTANCE_TYPE="$2"
-      shift 2
-      ;;
-    --region)
-      REGION="$2"
-      shift 2
-      ;;
-    --ansible-repo)
-      ANSIBLE_REPO="$2"
-      shift 2
-      ;;
-    --source-ami)
-      SOURCE_AMI="$2"
-      shift 2
-      ;;
-    --ami-name)
-      AMI_NAME="$2"
-      shift 2
-      ;;
-    --github-token)
-      GITHUB_TOKEN="$2"
-      shift 2
-      ;;
-    *)
-      echo "Unknown option: $1"
-      echo "Usage: ./build.sh [--instance-type TYPE] [--region REGION] [--ansible-repo OWNER/REPO] [--source-ami AMI_ID] [--ami-name NAME] [--github-token TOKEN]"
-      exit 1
-      ;;
+    --gpu) gpu=true; shift ;;
+    --) shift; break ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
-# Check if GitHub token is provided
-if [ -z "$GITHUB_TOKEN" ]; then
-  # Prompt for token if not provided
-  read -sp "Enter GitHub token: " GITHUB_TOKEN
-  echo
+case $target in
+  aws) only=(-only=amazon-ebs.fedora) ;;
+  gcp) only=(-only=googlecompute.fedora) ;;
+  all) only=() ;;
+  *) sed -n '2,9p' "$0"; exit 1 ;;
+esac
+
+for cmd in packer ansible-playbook; do
+  command -v "$cmd" >/dev/null || { echo "missing $cmd (macOS: brew install packer ansible)" >&2; exit 1; }
+done
+
+if [ "$target" != gcp ]; then
+  aws sts get-caller-identity >/dev/null || { echo "not logged in to AWS (aws configure / aws sso login)" >&2; exit 1; }
+fi
+if [ "$target" != aws ]; then
+  : "${GCP_PROJECT_ID:?set GCP_PROJECT_ID (e.g. export GCP_PROJECT_ID=\$(gcloud config get-value project))}"
+  gcloud auth application-default print-access-token >/dev/null 2>&1 \
+    || { echo "run: gcloud auth application-default login" >&2; exit 1; }
 fi
 
-# Validate GitHub token is provided
-if [ -z "$GITHUB_TOKEN" ]; then
-  echo "Error: GitHub token is required. Provide it with --github-token or in the .env file."
-  exit 1
+# The playbook: a sibling checkout if you have one, otherwise the public repo.
+ansible_dir=${ANSIBLE_DIR:-../ajf-fedora-workstation-ansible}
+if [ ! -f "$ansible_dir/playbook.yml" ]; then
+  ansible_dir=.ansible-src
+  repo=${ANSIBLE_REPO_URL:-https://github.com/aaronfeingold/ajf-fedora-workstation-ansible.git}
+  if [ -d "$ansible_dir/.git" ]; then git -C "$ansible_dir" pull -q; else git clone -q --depth 1 "$repo" "$ansible_dir"; fi
 fi
 
-echo "Building ML Training AMI..."
-echo "Instance Type: $INSTANCE_TYPE"
-echo "Region: $REGION"
-echo "Ansible Repo: $ANSIBLE_REPO"
-echo "Source AMI: $SOURCE_AMI"
-echo "AMI Name Prefix: $AMI_NAME"
-echo "GitHub Token: [REDACTED]"
-
-# Initialize Packer
-packer init .
-
-# Build the AMI
-packer build \
-  -var="instance_type=$INSTANCE_TYPE" \
-  -var="aws_region=$REGION" \
-  -var="ansible_repo=$ANSIBLE_REPO" \
-  -var="source_ami=$SOURCE_AMI" \
-  -var="ami_name=$AMI_NAME" \
-  -var="github_token=$GITHUB_TOKEN" \
-  .
-
-# Get the AMI ID
-AMI_ID=$(aws ec2 describe-images --owners self --filters "Name=name,Values=${AMI_NAME}*" --query 'sort_by(Images, &CreationDate)[-1].ImageId' --output text --region $REGION)
-if [ -n "$AMI_ID" ]; then
-  echo "Created AMI: $AMI_ID"
-fi
-
-echo "Build complete"
+packer init . >/dev/null
+exec packer build ${only[@]+"${only[@]}"} -var "gpu=$gpu" -var "ansible_dir=$ansible_dir" "$@" .

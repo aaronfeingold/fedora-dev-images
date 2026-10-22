@@ -1,0 +1,7 @@
+# Copy to e.g. mine.auto.pkrvars.hcl (gitignored); Packer loads *.auto.pkrvars.hcl automatically.
+# image_name       = "acme-dev"
+# aws_region       = "us-west-2"
+# gcp_project_id   = "my-project"      # or export GCP_PROJECT_ID
+# gcp_zone         = "us-central1-a"
+# disk_size_gb     = 100
+# ansible_extra_vars = { install_databases = "true" }

@@ -1,121 +1,72 @@
-# Fedora ML Training AMI Builder
+# Fedora dev images (AWS + GCP)
 
-This repository contains Packer configurations to build Amazon Machine Images (AMIs) optimized for machine learning training workloads on Fedora Linux.
+Packer template that builds a ready-to-use **Fedora 44** machine image on **AWS (AMI)** and/or
+**GCP (GCE image)** by running the [Fedora dev machine playbook](https://github.com/aaronfeingold/ajf-fedora-workstation-ansible)
+against a temporary builder instance. Launch an instance from the image and start building, with no
+20-minute setup each time.
 
-## Overview
+Two flavors:
 
-This Packer project creates an EC2 AMI based on Fedora 41, configured with all the necessary tools and dependencies for ML training. It leverages an external Ansible repository for system configuration.
-Prerequisites
+| | `./build aws` | `./build aws --gpu` |
+|---|---|---|
+| Base tools, Docker, Python/Node, cloud CLIs | ✓ | ✓ |
+| NVIDIA driver, CUDA 13.x, container toolkit | | ✓ (loads on first boot of a GPU instance) |
+| `~/.venvs/torch`, `~/.venvs/tf` (CUDA builds) | | ✓ |
 
-## Packer (v1.7.0+)
+Images are named `fedora-dev-f44[-gpu]-<timestamp>`; on GCP they also join the image family
+`fedora-dev-f44[-gpu]`, so "latest" is always `--image-family fedora-dev-f44-gpu`.
 
-AWS CLI installed and configured with appropriate permissions
-Git
-
-Project Structure
-
-```
-├── fedora_ml_image.pkr.hcl    # Main Packer configuration
-├── variables.pkr.hcl          # Variable definitions
-├── build.sh                   # Build script
-└── README.md                  # This file
-```
-
-## Quick Start
-
-Clone this repository:
+## Prerequisites
 
 ```sh
-git clone https://github.com/yourusername/packer-fedora-ml.git
-cd packer-fedora-ml
+brew install packer ansible            # or: sudo dnf install packer ansible-core (HashiCorp repo)
+aws configure    # or aws sso login / AWS_PROFILE=...           (for AWS)
+gcloud auth application-default login                            # (for GCP)
+export GCP_PROJECT_ID=$(gcloud config get-value project)         # (for GCP)
 ```
 
-Make the build script executable:
+Put the playbook next to this repo (`../ajf-fedora-workstation-ansible`) to build from your local
+changes; otherwise `./build` fetches the public repo. Override with `ANSIBLE_DIR` / `ANSIBLE_REPO_URL`.
+
+## Build
 
 ```sh
-chmod +x build.sh
+./build aws                 # base AMI in us-east-1
+./build gcp --gpu           # GPU image on GCP
+./build all --gpu           # both
+./build aws -- -var aws_region=us-west-2 -var image_name=acme-dev
 ```
 
-Build the AMI with default settings:
+Per-user settings: copy `example.auto.pkrvars.hcl.example` to `mine.auto.pkrvars.hcl` (gitignored).
+
+## Use an image
 
 ```sh
-./build.sh
+# AWS (GPU): g4dn.xlarge = 1x T4, the cheapest NVIDIA option
+aws ec2 run-instances --image-id ami-... --instance-type g4dn.xlarge --key-name my-key ...
+ssh fedora@<ip>
+nvidia-smi && ~/.venvs/torch/bin/python -c "import torch; print(torch.cuda.is_available())"
+
+# Then layer your personal dotfiles on (from your laptop, in the playbook repo):
+DOTFILES_REPO=you/dotfiles ./run_playbook -i <ip>, -u fedora --tags dotfiles
 ```
 
-Or customize the build:
+Log in as `fedora` on both clouds; the per-user tools (nvm, pyenv, `~/.venvs`) live in that home.
 
-```sh
-./build.sh --instance-type t3.large --region us-west-2 --ansible-repo https://github.com/yourname/your-ansible-repo.git
-```
+## Secrets and logs
 
-## Configuration Options
+- **No secrets in this repo or the build.** Packer runs Ansible from your machine over SSH, so the
+  builder never clones anything (no GitHub token, nothing to leak into logs or the image). Cloud
+  credentials come from your AWS profile / gcloud ADC, never Packer variables.
+- **Nothing personal is baked in.** Dotfiles, git identity, and keys are applied per user after launch.
+- **Builder SSH is locked to your IP** on AWS (`temporary_security_group_source_public_ip`); Packer
+  uses throwaway SSH keys and deletes the builder afterwards.
+- **The image is scrubbed** before capture: dnf caches, `/tmp`, journal, shell history, the builder's
+  `authorized_keys`, and cloud-init state (so each instance gets fresh SSH host keys and your key).
+- Don't set `PACKER_LOG=1` in shared CI logs; it is verbose by design.
 
-You can customize the build using the following parameters in the build script:
+## Costs
 
-| Parameter       | Description                            | Default                                          |
-| --------------- | -------------------------------------- | ------------------------------------------------ |
-| --instance-type | EC2 instance type for building the AMI | t3.medium                                        |
-| --region        | AWS region where the AMI will be built | us-east-1                                        |
-| --ansible-repo  | URL of the Ansible repository to use   | https://github.com/aaronfeingold/ajf-ansible.git |
-| --source-ami    | Base AMI ID to use                     | ami-09722669c73b517f6 (Fedora 41)                |
-| --ami-name      | Name prefix for the generated AMI      | ajf-fedora-ml-training                           |
-
-## How It Works
-
-1. Launches a temporary EC2 instance based on Fedora 41
-2. Installs prerequisites (git, ansible, python)
-3. Clones the specified Ansible repository
-4. Runs the Ansible playbook to configure the system
-5. Cleans up temporary files
-6. Creates an AMI from the configured instance
-7. Terminates the temporary instance
-
-## Ansible Integration
-
-This Packer configuration expects an Ansible repository with the following structure:
-
-```
-├── playbook.yml # Main playbook
-├── inventory.ini # Inventory file
-├── roles/ # Roles directory
-├── setup/prerequisites # Setup script
-└── run_playbook # Playbook execution script
-```
-
-The Ansible playbook should handle the installation and configuration of all ML-related tools and dependencies.
-
-It can be cloned from github (see below for configuring github access).
-
-## Environment Configuration
-
-This project uses environment variables for sensitive configuration.
-
-1. Copy the example environment file:
-```sh
-cp .env.example .env
-```
-
-2. Edit the .env file and add your GitHub personal access token:
-```sh
-GITHUB_TOKEN=your_github_token_here
-```
-
-3. Ensure your .env file is never committed to git (it should be gitignored by default)
-
-## Cost Efficiency
-
-This build process is optimized for cost efficiency:
-
-- Uses a moderate-sized instance type for building
-- Packages all dependencies into the AMI to reduce instance startup time
-- Cleans package caches to reduce AMI size
-- Configures the system for optimal ML training performance
-
-## Troubleshooting
-
-If the build fails:
-
-- Check AWS credentials and permissions
-- Verify connectivity to the Ansible repository
-- Examine Packer logs for specific error messages
-- Ensure the Ansible playbook is compatible with Fedora 41
+A base build takes ~15 min on a `t3.large` / `e2-standard-4` (cents). GPU images are built on the
+same non-GPU instance types; you only pay GPU prices when you launch from the image. Images/snapshots
+cost storage per month: delete old ones (`aws ec2 deregister-image`, `gcloud compute images delete`).
